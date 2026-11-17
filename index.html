@@ -863,6 +863,9 @@ const STORAGE_KEY = 'floating-realm-history-v2';
 const LEGACY_KEY = 'floating-realm-history-v1';
 const WEIGHTS = PRIZES.map(p => Math.round(p.rate * 100));
 const TOTAL_WEIGHT = WEIGHTS.reduce((a,b) => a+b, 0);
+const CTRL_PRIZES = PRIZES.filter(p => p.id >= 1 && p.id <= 27);
+const CTRL_WEIGHTS = CTRL_PRIZES.map(p => Math.round(p.rate * 100));
+const CTRL_TOTAL_WEIGHT = CTRL_WEIGHTS.reduce((a,b) => a+b, 0);
 let busy = false;
 let history = [];
 let counts = Object.fromEntries(PRIZES.map(p => [p.id,0]));
@@ -893,11 +896,13 @@ function randomBelow(limit) {
   do { crypto.getRandomValues(buffer); } while (buffer[0] >= ceiling);
   return buffer[0] % limit;
 }
-function pickPrize() {
-  let ticket = randomBelow(TOTAL_WEIGHT);
-  for (let i=0; i<PRIZES.length; i++) {
-    if (ticket < WEIGHTS[i]) return PRIZES[i];
-    ticket -= WEIGHTS[i];
+function pickPrize(ctrlOnly = false) {
+  const pool = ctrlOnly ? CTRL_PRIZES : PRIZES;
+  const weights = ctrlOnly ? CTRL_WEIGHTS : WEIGHTS;
+  let ticket = randomBelow(ctrlOnly ? CTRL_TOTAL_WEIGHT : TOTAL_WEIGHT);
+  for (let i=0; i<pool.length; i++) {
+    if (ticket < weights[i]) return pool[i];
+    ticket -= weights[i];
   }
   throw new Error('抽獎機率資料錯誤');
 }
@@ -953,23 +958,23 @@ function renderHistory() {
     const p = PRIZES.find(p => p.id === h.id);
     const li = node('li');
     const title = node('strong',p.name);
-    title.append(node('small',`獎項 ${String(p.id).padStart(3,'0')} · 原頁機率 ${rateText(p)}`));
+    title.append(node('small',h.ctrlOnly ? `獎項 ${String(p.id).padStart(3,'0')} · Ctrl 限定 1～27` : `獎項 ${String(p.id).padStart(3,'0')} · 原頁機率 ${rateText(p)}`));
     const time = node('time',new Date(h.time).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false}));
     time.dateTime = new Date(h.time).toISOString();
     li.append(node('span',`#${total-i}`),title,time); return li;
   }));
 }
-async function draw(count) {
+async function draw(count, ctrlOnly = false) {
   if (busy) return;
   busy = true;
   $('draw-one').disabled = $('draw-ten').disabled = $('clear-history').disabled = true;
   document.querySelector('.stage').classList.add('drawing');
   try {
-    const prizes = Array.from({length:count},() => pickPrize());
+    const prizes = Array.from({length:count},() => pickPrize(ctrlOnly));
     await new Promise(resolve => setTimeout(resolve,matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 650));
     const time = Date.now();
     for (const p of prizes) counts[p.id]++;
-    history = [...prizes.map(p => ({id:p.id,time})).reverse(),...history].slice(0,200);
+    history = [...prizes.map(p => ({id:p.id,time,ctrlOnly})).reverse(),...history].slice(0,200);
     const batchCounts = new Map();
     for (const p of prizes) batchCounts.set(p.id,(batchCounts.get(p.id)||0)+1);
     const sorted = PRIZES.filter(p => batchCounts.has(p.id));
@@ -980,7 +985,7 @@ async function draw(count) {
       return card;
     }));
     $('result-placeholder').hidden = true;
-    $('result-count').textContent = `${count} 抽`;
+    $('result-count').textContent = ctrlOnly ? `${count} 抽 · Ctrl 限定 1～27` : `${count} 抽`;
     persist(); renderCollection(); renderHistory();
   } finally {
     busy=false;
@@ -989,8 +994,8 @@ async function draw(count) {
     document.querySelector('.stage').classList.remove('drawing');
   }
 }
-$('draw-one').addEventListener('click',() => draw(1));
-$('draw-ten').addEventListener('click',() => draw(10));
+$('draw-one').addEventListener('click',event => draw(1,event.ctrlKey && event.button === 0));
+$('draw-ten').addEventListener('click',event => draw(10,event.ctrlKey && event.button === 0));
 $('search').addEventListener('input',renderCatalog);
 $('collection-search').addEventListener('input',renderCollection);
 $('won-only').addEventListener('change',renderCollection);
